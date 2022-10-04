@@ -2,27 +2,81 @@ try {
     const stateMachineFactory = (function () {
         const Factory = function(stateMachineDescription) {
             let _state = stateMachineDescription['states'][stateMachineDescription.initial];
+            let _statePath = stateMachineDescription.initial;
             const m = {
                 __proto__: Factory.prototype,
                 get state() {
                     return _state;
                 },
                 set state(newState) {
-                    return _state = this.setNewState(_state, newState);
+                    if(!this.isNewStateValid(newState)) return;
+                    //console.warn('using dangerous state method, which does not sync statePath');
+                    //TODO: Need to update path here as well
+                    return _state = newState;
                 },
-                statePath: stateMachineDescription.initial,
-                ...stateMachineDescription
+                get statePath() {
+                    return _statePath;
+                },
+                set statePath(newPath) {
+                    if(!this.isValidPath(newPath)) return;
+                    _statePath = newPath;
+                    this.state = this.getDeepestState();
+                    console.info('state and statePath updated...');
+                },
+                ...stateMachineDescription,
+                validStates: 
+                    Object.keys(stateMachineDescription['states'])
+                    .concat(['loaded.twoTerm', 'loaded.multiTerm', 'loaded.error'])
             };
             return m
         };
-        const _getDeepObject = function(TotalStateMachine){
-            const listOfNestedStates = TotalStateMachine.getStatePath().split('.');
+
+        const _disallowedAction = function(msg) {
+            console.warn('This action is not allowed: ', msg);
+            return null;
+        };
+
+        /**
+         * @param {string} event name of event sent to state machine
+         */
+        Factory.prototype.getAncestorStateWithAction = function(event) {
+            // let localStatePath = this.statePath.split('.');
+            // let deepestStateLabel = localStatePath.pop();
+            
+            // console.log('localStatePath: ', localStatePath);
+            // let testParentState = this.getDeepestState([deepestStateLabel]);
+            // console.log('testParentState: ', testParentState);
+            // if(1 === localStatePath.length) {
+            //     console.info('parent is root machine');
+            //     testParentState = this;
+            // }
+
+            // console.info('parent label: ', testParentState.label);
+
+            let parentState = this.getParentState();
+            while("rootState" !== parentState.label) {
+                const validActionsOnParent = parentState.on;
+                //TODO: Need to avoid changing state of the machine while searching
+                this.statePath = parentState.label;
+                if(validActionsOnParent && validActionsOnParent[event]) {
+                    return parentState;
+                }
+                parentState = this.getParentState();
+            };
+            return null;
+        };
+    
+        Factory.prototype.getDeepestStateLabel = function() {
+            return this.statePath.split('.').pop();
+        };
+        Factory.prototype.getDeepestState = function(passedInPath = []) {
+            const listOfNestedStates = passedInPath || this.statePath.split('.');
             if(1 === listOfNestedStates.length) {
                 const baseState = listOfNestedStates.pop();
-                return TotalStateMachine['states'][baseState];
+                return this['states'][baseState];
             }
 
-            let obj = TotalStateMachine['states'][listOfNestedStates[0]];
+            let obj = this['states'][listOfNestedStates[0]];
 
             for(let i = 1; i < listOfNestedStates.length; i++) {
                 if(!obj['states'] || !obj['states'][listOfNestedStates[i]]) return obj;
@@ -31,14 +85,12 @@ try {
 
             return obj;
         };
-
-        const _getParentState = function(TotalStateMachine){
-            const listOfNestedStates = TotalStateMachine.getStatePath().split('.');
-            console.log('listOfNestedStates: ', listOfNestedStates);
+        Factory.prototype.getParentState = function() {
+            const listOfNestedStates = this.statePath.split('.');
             if(1 === listOfNestedStates.length) {
-                return TotalStateMachine;
+                return this;
             }
-            let obj = TotalStateMachine['states'][listOfNestedStates[0]];
+            let obj = this['states'][listOfNestedStates[0]];
             /*  TODO: Fix this as currently coming from ancestor -> child 
                 and need to be: child -> ancestor
             */
@@ -47,66 +99,45 @@ try {
             }
             return obj;
         };
-
-        const _disallowedAction = function(msg) {
-            console.warn('This action is not allowed: ', msg);
-            return null;
-        };
-
-        Factory.prototype.setNewState = function(_state, newState) {
+        Factory.prototype.isNewStateValid = function(newState) {
             if(typeof newState !== 'object') {
-                _disallowedAction('Trying to set state to non-state object');
-                return _state;
+                _disallowedAction('Invalid state string specified');
+                return false;
             }
-            return newState;
-        }
+            return true;
+        };
+        Factory.prototype.isValidPath = function(newPath) {
+            const pathExists = this.validStates.filter(path => path === newPath).length === 1;
+            if(pathExists) return pathExists;
+            throw new Error('invalid state path specified');
+        };
         /**
-         * 
-         * @param {string} event name of event sent to state machine
+         * Updates the machine's state path, based on various parameters
+         * @param {string} target new state to append/set, depending on config
+         * @param {object} config 
+         * @returns 
          */
-        Factory.prototype.getAncestorStateWithAction = function(event) {
-            const parentState = this.getParentState();
-            const validActionsOnParent = parentState.on;
-            if(validActionsOnParent && validActionsOnParent[event]) {
-                return parentState;
-            }
-        };
-    
-    
-        Factory.prototype.getStatePath = function() {
-            return this.statePath;
-        };
-        Factory.prototype.getDeepestStateLabel = function() {
-            return this.statePath.split('.').pop();
-        };
-        Factory.prototype.getDeepestState = function() {
-           return _getDeepObject(this);
-        };
-        Factory.prototype.getParentState = function() {
-            return _getParentState(this);
-        };
-        Factory.prototype.setStatePath = function(target, nested = false, direct = false) {
+        Factory.prototype.updateStatePath = function(target, 
+            config = {nested: false, direct: false}
+        ) {
+            const {nested, direct} = config;
             const listOfStates = this.statePath.split('.');
             if(direct) {
                 this.statePath = target;
-                this.state = this.getDeepestState();
                 return;
             }
 
             if(1 == listOfStates.length && !nested) {
                 this.statePath = target;
-                this.state = this.getDeepestState();
                 return;
             }
             if(nested) {
                 this.statePath += '.' + target;
-                this.state = this.getDeepestState();
                 return;
             }
             listOfStates[listOfStates.length -1] = target;
             
             this.statePath = listOfStates.join('.');
-            this.state = this.getDeepestState();
 
             return;
         };
@@ -125,15 +156,17 @@ try {
 
             if(!actionBeingTaken) {
                 const ancestorStateWithAction = this.getAncestorStateWithAction(event);
-                const actionFromAncestor = ancestorStateWithAction.on[event];
+                if(ancestorStateWithAction) {
+                    const actionFromAncestor = ancestorStateWithAction.on[event];
                 //TODO: needs fixing here, since need state updated to match.
                 // bug in implementation of statepath, nesting where should not
                 if(actionFromAncestor) {
-                    this.setStatePath('spoof', false, true);
+                    this.updateStatePath('spoof', {nested: false, direct: true});
                     console.error(this.getParentState());
                     console.log(this.state);
                     
                     //this.transitionToNewState(actionFromAncestor);
+                }
                 }
             }
             
@@ -152,16 +185,17 @@ try {
                     actionBeingTaken.exit[i](`Exiting '${this.statePath}' state`);
                 }
             }
-            this.setStatePath(targetStateLabel);
+            this.updateStatePath(targetStateLabel);
 
             // if new state is a compound state, enter initial sub-state
-            // need to ensure we don't already have a substate set. 
+            // need to ensure we don't already have a substate set.
+
             //TODO: add check that only first time this happens
             if(this.state.initial) {
-                this.setStatePath(this.getDeepestState().initial, true);
+                this.updateStatePath(this.getDeepestState().initial, {nested: true});
             } else {
                 // new state is atomic
-                this.setStatePath(targetStateLabel);
+                this.updateStatePath(targetStateLabel);
             }
 
             if(actionBeingTaken.entry) {
