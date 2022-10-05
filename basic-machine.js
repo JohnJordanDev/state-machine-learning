@@ -73,7 +73,7 @@ try {
             throw new Error('deepest state not found from path');
         };
         //TODO: This is for CURRENT state ONLY
-        Factory.prototype.getParentState = function() {
+        Factory.prototype.getParentOfCurrentGlobalState = function() {
             let listOfNestedStates = this.statePath.split('.');
             console.warn(listOfNestedStates.length)
             if(1 === listOfNestedStates.length) {
@@ -131,11 +131,8 @@ try {
             const actionBeingTaken = validActions[event];
             const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
 
-            // For user selection of current state
-            if(null === actionBeingTaken && actionBeingTaken.target) return;
-
             if(targetStateLabel) {
-                this.transitionToNewState(actionBeingTaken);
+                this.transitionToNewState(targetStateLabel);
             }  
 
             if(!actionBeingTaken) {
@@ -149,44 +146,50 @@ try {
                     const actionBeingTaken = validActions[event];
                     const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
                     if(targetStateLabel) {
-                        this.transitionToNewState(actionBeingTaken);
+                        this.transitionToNewState(targetStateLabel);
                     }
                 }
             }
             
         };
         /**
-         * Move machine from current to new state, based on allowed action from current state
-         * @param {object} action - action obj from current state (being transitioned from)
+         * Move machine from current to new state, based on allowed and present action from current state
+         * @param {string} targetStateLabel - name of sibling state to transition to
+         * 
          */
-        Factory.prototype.transitionToNewState = function(action) {
-            const actionBeingTaken = action;
-            const targetStateLabel = actionBeingTaken.target;
+        Factory.prototype.transitionToNewState = function(targetStateLabel) {
             if(!targetStateLabel) return;
+            console.info('callng with: ', targetStateLabel)
 
-            if(actionBeingTaken.exit) {
-                for(let i = 0; i < actionBeingTaken.exit.length; i++) {
-                    actionBeingTaken.exit[i](`Exiting '${this.statePath}' state`);
-                }
+            // if(actionBeingTaken.exit) {
+            //     for(let i = 0; i < actionBeingTaken.exit.length; i++) {
+            //         actionBeingTaken.exit[i](`Exiting '${this.statePath}' state`);
+            //     }
+            // }
+            
+            const parentState = this.getParentOfCurrentGlobalState();
+            const siblingStates = parentState.states;
+            
+            // safe to make transition
+            if(siblingStates && siblingStates[targetStateLabel]) {
+                this.updateStatePath(targetStateLabel);
             }
-            this.updateStatePath(targetStateLabel);
-
-            // if new state is a compound state, enter initial sub-state
-            // need to ensure we don't already have a substate set.
 
             //TODO: Need to further transition state deep down, if nested states
             if(this.state.initial) {
+                console.warn('setting nested state: ', this.getDeepestState().initial);
                 this.updateStatePath(this.getDeepestState().initial, {nested: true});
+                //TODO need recursive call here to keep diving down into nested states 
             } else {
                 // new state is atomic
                 this.updateStatePath(targetStateLabel);
             }
 
-            if(actionBeingTaken.entry) {
-                for(let i = 0; i < actionBeingTaken.entry.length; i++) {
-                    actionBeingTaken.entry[i](`Entering '${this.statePath}' state.`);
-                }
-            }
+            // if(actionBeingTaken.entry) {
+            //     for(let i = 0; i < actionBeingTaken.entry.length; i++) {
+            //         actionBeingTaken.entry[i](`Entering '${this.statePath}' state.`);
+            //     }
+            // }
 
         };
         // TODO
@@ -331,7 +334,7 @@ try {
         window.addEventListener("load", function () {
             widget.sendEvent("LOAD");
             //widget.sendEvent("SELECT_MULTITERM");
-            widget.sendEvent("SELECT_TWOTERM");
+            //widget.sendEvent("SELECT_TWOTERM");
             //widget.sendEvent("SPOOF");
            //widget.sendEvent("ERROR");
 
