@@ -2,6 +2,7 @@
  * Notes
  * 1. Difference between 'jump' (using statePath; doesn't trigger entry/exit actions)
  *  and 'transition' (transition state; does trigger entry/exit actions)
+ * 2. When adding a new state (atomic or nested), need to add to validState list
  */
 try {
     const stateMachineFactory = (function () {
@@ -32,9 +33,10 @@ try {
                     console.log([this.state, this.statePath]);
                 },
                 ...stateMachineDescription,
+                //TODO: this could be replaced with an actual check on the state machine, to see if path corresponds to a state
                 validStates: 
                     Object.keys(stateMachineDescription['states'])
-                    .concat(['loaded.twoTerm', 'loaded.multiTerm', 'loaded.error'])
+                    .concat(['loaded.twoTerm', 'loaded.multiTerm', 'loaded.error', 'loaded.twoTerm.multitude', 'loaded.twoTerm.magnitude'])
             };
             return m
         };
@@ -123,6 +125,7 @@ try {
             if(currentState.type && 'final' === currentState.type) return;
 
             const validActions = currentState.on;
+            if(!validActions) return console.warn('Present state has no actions "on" property');
             const actionBeingTaken = validActions[event];
             const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
 
@@ -172,9 +175,13 @@ try {
 
             //TODO: Need to further transition state deep down, if nested states
             if(this.state.initial) {
-                console.warn('setting nested state: ', this.state.initial);
+               
                 this.updateStatePath(this.state.initial, {nested: true});
                 //TODO need recursive call here to keep diving down into nested states 
+                while(this.state.initial) {
+                    console.warn('setting nested state in WHILE loop: ', this.state.initial, this.statePath);
+                    this.updateStatePath(this.state.initial, {nested: true});
+                }
             } else {
                 // new state is atomic
                 this.updateStatePath(targetStateLabel);
@@ -226,6 +233,7 @@ try {
         states: {
             twoTerm: {
                 label: 'twoTerm',
+                initial: 'multitude',
                 on: {
                     SELECT_TWOTERM: {
                         target: null
@@ -235,6 +243,22 @@ try {
                     },
                     ERROR: {
                         target: 'error'
+                    }
+                },
+                states: {
+                    multitude: {
+                        on: {
+                            SWITCH_MAGNITUDE: {
+                                target: 'magnitude'
+                            }
+                        }
+                    },
+                    magnitude: {
+                        on: {
+                            SWITCH_MULTITUDE: {
+                                target: 'multitude'
+                            } 
+                        }
                     }
                 }
             },
