@@ -67,11 +67,6 @@ try {
         Factory.prototype.getDeepestStateLabel = function() {
             return this.statePath.split('.').pop();
         };
-        Factory.prototype.getDeepestState = function( ) {
-            const deepestState = this.getStateFrameFromPath(this.statePath);
-            if(deepestState) return deepestState;
-            throw new Error('deepest state not found from path');
-        };
         //TODO: This is for CURRENT state ONLY
         Factory.prototype.getParentOfCurrentGlobalState = function() {
             let listOfNestedStates = this.statePath.split('.');
@@ -132,7 +127,7 @@ try {
             const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
 
             if(targetStateLabel) {
-                this.transitionToNewState(targetStateLabel);
+                this.transitionToNewSiblingState(targetStateLabel);
             }  
 
             if(!actionBeingTaken) {
@@ -146,7 +141,7 @@ try {
                     const actionBeingTaken = validActions[event];
                     const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
                     if(targetStateLabel) {
-                        this.transitionToNewState(targetStateLabel);
+                        this.transitionToNewSiblingState(targetStateLabel);
                     }
                 }
             }
@@ -157,7 +152,7 @@ try {
          * @param {string} targetStateLabel - name of sibling state to transition to
          * 
          */
-        Factory.prototype.transitionToNewState = function(targetStateLabel) {
+        Factory.prototype.transitionToNewSiblingState = function(targetStateLabel) {
             if(!targetStateLabel) return;
             console.info('callng with: ', targetStateLabel)
 
@@ -177,8 +172,8 @@ try {
 
             //TODO: Need to further transition state deep down, if nested states
             if(this.state.initial) {
-                console.warn('setting nested state: ', this.getDeepestState().initial);
-                this.updateStatePath(this.getDeepestState().initial, {nested: true});
+                console.warn('setting nested state: ', this.state.initial);
+                this.updateStatePath(this.state.initial, {nested: true});
                 //TODO need recursive call here to keep diving down into nested states 
             } else {
                 // new state is atomic
