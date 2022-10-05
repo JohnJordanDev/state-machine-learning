@@ -1,3 +1,8 @@
+/** 
+ * Notes
+ * 1. Difference between 'jump' (using statePath; doesn't trigger entry/exit actions)
+ *  and 'transition' (transition state; does trigger entry/exit actions)
+ */
 try {
     const stateMachineFactory = (function () {
         const Factory = function(stateMachineDescription) {
@@ -8,6 +13,7 @@ try {
                 get state() {
                     return _state;
                 },
+                // TODO: Clear out this function, since statePath is source of truth
                 set state(newState) {
                     if(!this.isNewStateValid(newState)) return;
                     //console.warn('using dangerous state method, which does not sync statePath');
@@ -20,8 +26,10 @@ try {
                 set statePath(newPath) {
                     if(!this.isValidPath(newPath)) return;
                     _statePath = newPath;
-                    this.state = this.getDeepestState();
+                    // TODO: CHange this to set the private state variable
+                    this.state = this.getStateFrameFromPath(_statePath);
                     console.info('state and statePath updated...');
+                    console.log([this.state, this.statePath]);
                 },
                 ...stateMachineDescription,
                 validStates: 
@@ -39,65 +47,68 @@ try {
         /**
          * @param {string} event name of event sent to state machine
          */
-        Factory.prototype.getAncestorStateWithAction = function(event) {
-            // let localStatePath = this.statePath.split('.');
-            // let deepestStateLabel = localStatePath.pop();
-            
-            // console.log('localStatePath: ', localStatePath);
-            // let testParentState = this.getDeepestState([deepestStateLabel]);
-            // console.log('testParentState: ', testParentState);
-            // if(1 === localStatePath.length) {
-            //     console.info('parent is root machine');
-            //     testParentState = this;
-            // }
-
-            // console.info('parent label: ', testParentState.label);
-
-            let parentState = this.getParentState();
-            while("rootState" !== parentState.label) {
-                const validActionsOnParent = parentState.on;
-                //TODO: Need to avoid changing state of the machine while searching
-                this.statePath = parentState.label;
+        Factory.prototype.getPathToAncestorStateWithAction = function(event) {
+            if(!event) return console.warn('"Event" cannot be empty, when finding ancestor with action!');
+            let pathList = this.statePath.split('.');
+            // get parent path
+            pathList.pop();
+            let ancestorState = this.getStateFrameFromPath(pathList.join('.'));
+            while("rootState" !== ancestorState.label && pathList.length) {
+                const validActionsOnParent = ancestorState.on;
                 if(validActionsOnParent && validActionsOnParent[event]) {
-                    return parentState;
+                    return pathList.join('.');
                 }
-                parentState = this.getParentState();
+                pathList.pop();
+                ancestorState = this.getStateFrameFromPath(pathList.join('.'));
             };
-            return null;
+            return pathList.join('.');
         };
     
         Factory.prototype.getDeepestStateLabel = function() {
             return this.statePath.split('.').pop();
         };
-        Factory.prototype.getDeepestState = function(passedInPath = []) {
-            const listOfNestedStates = passedInPath || this.statePath.split('.');
-            if(1 === listOfNestedStates.length) {
-                const baseState = listOfNestedStates.pop();
-                return this['states'][baseState];
-            }
-
-            let obj = this['states'][listOfNestedStates[0]];
-
-            for(let i = 1; i < listOfNestedStates.length; i++) {
-                if(!obj['states'] || !obj['states'][listOfNestedStates[i]]) return obj;
-                obj = obj['states'][listOfNestedStates[i]];
-            }
-
-            return obj;
+        Factory.prototype.getDeepestState = function( ) {
+            const deepestState = this.getStateFrameFromPath(this.statePath);
+            if(deepestState) return deepestState;
+            throw new Error('deepest state not found from path');
         };
+        //TODO: This is for CURRENT state ONLY
         Factory.prototype.getParentState = function() {
-            const listOfNestedStates = this.statePath.split('.');
+            let listOfNestedStates = this.statePath.split('.');
+            console.warn(listOfNestedStates.length)
             if(1 === listOfNestedStates.length) {
+                // returning state machine itself, as "root" above last ancestor states
                 return this;
             }
-            let obj = this['states'][listOfNestedStates[0]];
-            /*  TODO: Fix this as currently coming from ancestor -> child 
-                and need to be: child -> ancestor
-            */
-            for(let i = listOfNestedStates.length - 1; i <= 0; i--) {
-                obj = obj['states'][listOfNestedStates[i]];
+            // get parent state path
+            listOfNestedStates.pop();
+            return this.getStateFrameFromPath(listOfNestedStates.join('.'));
+        };
+        Factory.prototype.getStateFrameFromPath = function(path = this.statePath) {
+            // assume at root state, return state machine itself
+            if(!path) return this;
+            
+            const statePathList = path.split('.');
+
+            // first child state of state machine, itself           
+            let currentStateFrame = this.states[statePathList[0]];
+            if(!currentStateFrame) {
+                return console.warn('Given path does not match child states of state machine (itself)');
             }
-            return obj;
+
+            if(1 === statePathList.length) return currentStateFrame;
+
+            for(let i = 1; i <= statePathList.length - 1; i++){
+                if(!currentStateFrame.states) {
+                    return console.warn('Tried to find nested states in atomic state');
+                }
+                if(currentStateFrame.states && currentStateFrame.states[statePathList[i]]) {
+                    currentStateFrame = currentStateFrame.states[statePathList[i]];
+                } else {
+                    return console.warn('Nested state does not exist on this compound state');
+                }
+            }
+            return currentStateFrame;
         };
         Factory.prototype.isNewStateValid = function(newState) {
             if(typeof newState !== 'object') {
@@ -111,62 +122,35 @@ try {
             if(pathExists) return pathExists;
             throw new Error('invalid state path specified');
         };
-        /**
-         * Updates the machine's state path, based on various parameters
-         * @param {string} target new state to append/set, depending on config
-         * @param {object} config 
-         * @returns 
-         */
-        Factory.prototype.updateStatePath = function(target, 
-            config = {nested: false, direct: false}
-        ) {
-            const {nested, direct} = config;
-            const listOfStates = this.statePath.split('.');
-            if(direct) {
-                this.statePath = target;
-                return;
-            }
-
-            if(1 == listOfStates.length && !nested) {
-                this.statePath = target;
-                return;
-            }
-            if(nested) {
-                this.statePath += '.' + target;
-                return;
-            }
-            listOfStates[listOfStates.length -1] = target;
-            
-            this.statePath = listOfStates.join('.');
-
-            return;
-        };
         Factory.prototype.sendEvent = function(event) {
-
+            console.warn('Event: ', event);
             const currentState = this.state;
-            if(currentState.type && 'final' ==  currentState.type) return;
+            if(currentState.type && 'final' === currentState.type) return;
 
             const validActions = currentState.on;
             const actionBeingTaken = validActions[event];
             const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
+
+            // For user selection of current state
+            if(null === actionBeingTaken && actionBeingTaken.target) return;
 
             if(targetStateLabel) {
                 this.transitionToNewState(actionBeingTaken);
             }  
 
             if(!actionBeingTaken) {
-                const ancestorStateWithAction = this.getAncestorStateWithAction(event);
-                if(ancestorStateWithAction) {
-                    const actionFromAncestor = ancestorStateWithAction.on[event];
-                //TODO: needs fixing here, since need state updated to match.
-                // bug in implementation of statepath, nesting where should not
-                if(actionFromAncestor) {
-                    this.updateStatePath('spoof', {nested: false, direct: true});
-                    console.error(this.getParentState());
-                    console.log(this.state);
-                    
-                    //this.transitionToNewState(actionFromAncestor);
-                }
+                console.warn('This event does NOT exist on this state: ', event);
+                const pathToAncestorWithAction = this.getPathToAncestorStateWithAction(event);
+                if(pathToAncestorWithAction) {
+                    // Note: difference here between 'jump' and 'transition' (entry/exit actions triggered) to states
+                    this.statePath = pathToAncestorWithAction;
+
+                    const validActions = this.state.on;
+                    const actionBeingTaken = validActions[event];
+                    const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
+                    if(targetStateLabel) {
+                        this.transitionToNewState(actionBeingTaken);
+                    }
                 }
             }
             
@@ -190,7 +174,7 @@ try {
             // if new state is a compound state, enter initial sub-state
             // need to ensure we don't already have a substate set.
 
-            //TODO: add check that only first time this happens
+            //TODO: Need to further transition state deep down, if nested states
             if(this.state.initial) {
                 this.updateStatePath(this.getDeepestState().initial, {nested: true});
             } else {
@@ -205,6 +189,37 @@ try {
             }
 
         };
+        // TODO
+        /**
+         * Updates the machine's state path, based on various parameters
+         * @param {string} target new state to append/set, depending on config
+         * @param {object} config 
+         * @returns 
+         */
+        Factory.prototype.updateStatePath = function(target, 
+                    config = {nested: false, direct: false}
+                ) {
+                    const {nested, direct} = config;
+                    const listOfStates = this.statePath.split('.');
+                    if(direct) {
+                        this.statePath = target;
+                        return;
+                    }
+        
+                    if(1 == listOfStates.length && !nested) {
+                        this.statePath = target;
+                        return;
+                    }
+                    if(nested) {
+                        this.statePath += '.' + target;
+                        return;
+                    }
+                    listOfStates[listOfStates.length -1] = target;
+                    
+                    this.statePath = listOfStates.join('.');
+        
+                    return;
+                };
         return Factory;
     }());
 
@@ -214,10 +229,11 @@ try {
             twoTerm: {
                 label: 'twoTerm',
                 on: {
+                    SELECT_TWOTERM: {
+                        target: null
+                    },
                     SELECT_MULTITERM: {
-                        target: 'multiTerm',
-                        entry: [console.log],
-                        exit: [console.log]
+                        target: 'multiTerm'
                     },
                     ERROR: {
                         target: 'error'
@@ -228,9 +244,7 @@ try {
                 label: 'multiTerm',
                 on: {
                     SELECT_TWOTERM: {
-                        target: 'twoTerm',
-                        entry: [console.log],
-                        exit: [console.log]
+                        target: 'twoTerm'
                     },
                     ERROR: {
                         target: 'error'
@@ -238,8 +252,10 @@ try {
                 }
             },
             error: {
-                label:'loaded.error',
-                type: 'final'
+                label: 'loaded.error',
+                onEntry: [console.log],
+                onExit: [console.log],
+                type: 'final',
             }
         } 
     };
@@ -252,15 +268,11 @@ try {
                 label: 'loading',
                 on: {
                     LOAD: {
-                        target: 'loaded',
+                        target: 'loaded'
                         // could add guard conditions here, and check in blueprint: https://jonbellah.com/articles/intro-state-machines
-                        entry : [console.log],
-                        exit : [console.log]
                     },
                     ERROR: {
-                        target: 'error',
-                        entry : [console.log],
-                        exit : [console.log]
+                        target: 'error'
                     }
                 }
             },
@@ -268,25 +280,40 @@ try {
                 label: 'loaded',
                 on: {
                     ERROR: {
-                        target: 'error',
-                        entry : [console.log],
-                        exit : [console.log]
+                        target: 'error'
                     },
                     SPOOF: {
-                        target: 'spoof',
-                        entry : [console.log],
-                        exit : [console.log]
+                        target: 'spoof'
+                    },
+                    WOOF: {
+                        target: 'woof'
                     }
                 },
                 ...loadedStates
             },
             error: {
                 label: 'error',
+                onEntry : [console.log],
+                onExit : [console.log],
                 type: 'final'
             },
             spoof: {
                 label: 'spoof',
+                onEntry : [console.log],
+                onExit : [console.log],
                 type: 'final'
+            },
+            woof: {
+                label: 'woof',
+                onEntry : [console.log],
+                onExit : [console.log],
+                on: {
+                    WOOF: {
+                        target: 'loaded',
+                        entry : [console.log],
+                        exit : [console.log]
+                    }
+                }
             }
         }
     };
@@ -304,9 +331,9 @@ try {
         window.addEventListener("load", function () {
             widget.sendEvent("LOAD");
             //widget.sendEvent("SELECT_MULTITERM");
-            //widget.sendEvent("SELECT_TWOTERM");
-            widget.sendEvent("SPOOF");
-           // widget.sendEvent("ERROR");
+            widget.sendEvent("SELECT_TWOTERM");
+            //widget.sendEvent("SPOOF");
+           //widget.sendEvent("ERROR");
 
             window.widget = widget;
         });
