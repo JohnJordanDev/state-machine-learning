@@ -6,6 +6,10 @@
  */
 try {
     const stateMachineFactory = (function () {
+        const _disallowedAction = function(msg) {
+            console.warn('This action is not allowed: ', msg);
+            return null;
+        };
         const Factory = function(stateMachineDescription) {
             let _state = stateMachineDescription['states'][stateMachineDescription.initial];
             let _statePath = stateMachineDescription.initial;
@@ -14,12 +18,9 @@ try {
                 get state() {
                     return _state;
                 },
-                // TODO: Clear out this function, since statePath is source of truth
                 set state(newState) {
-                    if(!this.isNewStateValid(newState)) return;
-                    //console.warn('using dangerous state method, which does not sync statePath');
-                    //TODO: Need to update path here as well
-                    return _state = newState;
+                    _disallowedAction(`Trying to set manually, to '${newState}'`)
+                    return null;
                 },
                 get statePath() {
                     return _statePath;
@@ -27,23 +28,34 @@ try {
                 set statePath(newPath) {
                     if(!this.isValidPath(newPath)) return;
                     _statePath = newPath;
-                    // TODO: CHange this to set the private state variable
-                    this.state = this.getStateFrameFromPath(_statePath);
-                    console.info('state and statePath updated...');
-                    console.log([this.state, this.statePath]);
+                    _state = this.getStateFrameFromPath(_statePath);
+                    console.info('State has changed...', [this.state, this.statePath]);
                 },
                 ...stateMachineDescription,
                 //TODO: this could be replaced with an actual check on the state machine, to see if path corresponds to a state
                 validStates: 
                     Object.keys(stateMachineDescription['states'])
-                    .concat(['loaded.twoTerm', 'loaded.multiTerm', 'loaded.error', 'loaded.twoTerm.multitude', 'loaded.twoTerm.magnitude'])
+                    .concat(['loaded.twoTerm', 
+                    'loaded.multiTerm', 
+                    'loaded.error', 
+                    'loaded.twoTerm.multitude', 
+                    'loaded.twoTerm.magnitude'])
             };
             return m
         };
+        /**
+         * 
+         * @param {object} state state undergoing transition event
+         * @param {string} actionList name of property on state, which lists functions 
+         */
+        Factory.prototype.doStateTransitionActions = function(state, actionListName = 'onExit') {
+            //_disallowedAction('action list NOT on state.');
+            if(!(state[actionListName] && Array.isArray(state[actionListName]))) return;
+            let list = state[actionListName];
+            for(let i = 0; i < list.length; i++) {
+                list[i](`'${actionListName}' actions being called on '${this.statePath}' state.`);
+            }
 
-        const _disallowedAction = function(msg) {
-            console.warn('This action is not allowed: ', msg);
-            return null;
         };
 
         /**
@@ -52,8 +64,7 @@ try {
         Factory.prototype.getPathToAncestorStateWithAction = function(event) {
             if(!event) return console.warn('"Event" cannot be empty, when finding ancestor with action!');
             let pathList = this.statePath.split('.');
-            // get parent path
-            pathList.pop();
+            pathList.pop(); // get parent path
             let ancestorState = this.getStateFrameFromPath(pathList.join('.'));
             while("rootState" !== ancestorState.label && pathList.length) {
                 const validActionsOnParent = ancestorState.on;
@@ -69,16 +80,10 @@ try {
         Factory.prototype.getDeepestStateLabel = function() {
             return this.statePath.split('.').pop();
         };
-        //TODO: This is for CURRENT state ONLY
         Factory.prototype.getParentOfCurrentGlobalState = function() {
             let listOfNestedStates = this.statePath.split('.');
-            console.warn(listOfNestedStates.length)
-            if(1 === listOfNestedStates.length) {
-                // returning state machine itself, as "root" above last ancestor states
-                return this;
-            }
-            // get parent state path
-            listOfNestedStates.pop();
+              if(1 === listOfNestedStates.length)  return this;   // returning state machine itself
+            listOfNestedStates.pop(); // get parent state path
             return this.getStateFrameFromPath(listOfNestedStates.join('.'));
         };
         Factory.prototype.getStateFrameFromPath = function(path = this.statePath) {
@@ -107,17 +112,11 @@ try {
             }
             return currentStateFrame;
         };
-        Factory.prototype.isNewStateValid = function(newState) {
-            if(typeof newState !== 'object') {
-                _disallowedAction('Invalid state string specified');
-                return false;
-            }
-            return true;
-        };
         Factory.prototype.isValidPath = function(newPath) {
+            console.log(newPath, ' from is valid');
             const pathExists = this.validStates.filter(path => path === newPath).length === 1;
             if(pathExists) return pathExists;
-            throw new Error('invalid state path specified');
+            throw new Error('new state path not on validState list: ' + newPath);
         };
         Factory.prototype.sendEvent = function(event) {
             console.warn('Event: ', event);
@@ -126,19 +125,20 @@ try {
 
             const validActions = currentState.on;
             if(!validActions) return console.warn('Present state has no actions "on" property');
+
             const actionBeingTaken = validActions[event];
             const targetStateLabel = actionBeingTaken && actionBeingTaken.target;
-
             if(targetStateLabel) {
                 this.transitionToNewSiblingState(targetStateLabel);
             }  
 
             if(!actionBeingTaken) {
-                console.warn('This event does NOT exist on this state: ', event);
                 const pathToAncestorWithAction = this.getPathToAncestorStateWithAction(event);
                 if(pathToAncestorWithAction) {
                     // Note: difference here between 'jump' and 'transition' (entry/exit actions triggered) to states
-                    this.statePath = pathToAncestorWithAction;
+                    // TODO: refactor this to use 'updateStatePath', and indicate a parent
+                    console.warn('directly jumping ', pathToAncestorWithAction);
+                    this.updateStatePath(pathToAncestorWithAction, {direct: true});
 
                     const validActions = this.state.on;
                     const actionBeingTaken = validActions[event];
@@ -156,14 +156,8 @@ try {
          * 
          */
         Factory.prototype.transitionToNewSiblingState = function(targetStateLabel) {
+           
             if(!targetStateLabel) return;
-            console.info('callng with: ', targetStateLabel)
-
-            // if(actionBeingTaken.exit) {
-            //     for(let i = 0; i < actionBeingTaken.exit.length; i++) {
-            //         actionBeingTaken.exit[i](`Exiting '${this.statePath}' state`);
-            //     }
-            // }
             
             const parentState = this.getParentOfCurrentGlobalState();
             const siblingStates = parentState.states;
@@ -182,19 +176,8 @@ try {
                     console.warn('setting nested state in WHILE loop: ', this.state.initial, this.statePath);
                     this.updateStatePath(this.state.initial, {nested: true});
                 }
-            } else {
-                // new state is atomic
-                this.updateStatePath(targetStateLabel);
             }
-
-            // if(actionBeingTaken.entry) {
-            //     for(let i = 0; i < actionBeingTaken.entry.length; i++) {
-            //         actionBeingTaken.entry[i](`Entering '${this.statePath}' state.`);
-            //     }
-            // }
-
         };
-        // TODO
         /**
          * Updates the machine's state path, based on various parameters
          * @param {string} target new state to append/set, depending on config
@@ -207,23 +190,23 @@ try {
                     const {nested, direct} = config;
                     const listOfStates = this.statePath.split('.');
                     if(direct) {
+                        console.log('direct, ', this.statePath, target);
                         this.statePath = target;
-                        return;
+                        return this.hasJustJumpedToParentState = true;
                     }
-        
+                    if(!this.hasJustJumpedToParentState) {
+                        // don't want to trigger onEntry actions when jumping direct from child state 
+                        this.doStateTransitionActions(this.state, 'onExit');
+                    }
                     if(1 == listOfStates.length && !nested) {
                         this.statePath = target;
-                        return;
-                    }
-                    if(nested) {
+                    } else if(nested) {
                         this.statePath += '.' + target;
-                        return;
+                    } else {
+                        listOfStates[listOfStates.length -1] = target;
+                        this.statePath = listOfStates.join('.');
                     }
-                    listOfStates[listOfStates.length -1] = target;
-                    
-                    this.statePath = listOfStates.join('.');
-        
-                    return;
+                    return this.doStateTransitionActions(this.state, 'onEntry');    
                 };
         return Factory;
     }());
@@ -300,6 +283,8 @@ try {
             },
             loaded: {
                 label: 'loaded',
+                onEntry : [console.log],
+                onExit : [console.log],
                 on: {
                     ERROR: {
                         target: 'error'
