@@ -11,20 +11,19 @@ try {
             return null;
         };
         const Factory = function(stateMachineDescription) {
+            let _pseudoStates = [];
             let _state = stateMachineDescription['states'][stateMachineDescription.initial];
             let _statePath = stateMachineDescription.initial;
             const m = {
                 __proto__: Factory.prototype,
-                get state() {
-                    return _state;
+                get pseudoStates() {return this._pseudoStates},
+                set pseudoStates(newState) {
+                    if(!Array.isArray(newState)) return _disallowedAction('Pseudostate must be array');
+                    this._pseudoStates = newState;
                 },
-                set state(newState) {
-                    _disallowedAction(`Trying to set manually, to '${newState}'`)
-                    return null;
-                },
-                get statePath() {
-                    return _statePath;
-                },
+                get state() {return _state;},
+                set state(newState) {return _disallowedAction(`Trying to set manually, to '${newState}'`)},
+                get statePath() {return _statePath;},
                 set statePath(newPath) {
                     if(!this.isValidPath(newPath)) return;
                     _statePath = newPath;
@@ -39,9 +38,11 @@ try {
                     'loaded.multiTerm', 
                     'loaded.error', 
                     'loaded.twoTerm.multitude', 
-                    'loaded.twoTerm.magnitude'])
+                    'loaded.twoTerm.magnitude',
+                    'loaded.multiTerm.multitude',
+                    'loaded.multiTerm.magnitude'])
             };
-            return m
+            return m;
         };
         /**
          * 
@@ -55,7 +56,6 @@ try {
             for(let i = 0; i < list.length; i++) {
                 list[i](`'${actionListName}' actions being called on '${this.statePath}' state.`);
             }
-
         };
 
         /**
@@ -76,6 +76,14 @@ try {
             };
             return pathList.join('.');
         };
+
+        Factory.prototype.getChildPathsRelativeToAncestor = function(ancestorLabel = ''){  
+            const curr = this.statePath.split('.'); 
+            const ancesList = ancestorLabel.split('.');
+            return curr.filter((e, i) => {
+                return i >= ancesList.length; 
+            });
+        },
     
         Factory.prototype.getDeepestStateLabel = function() {
             return this.statePath.split('.').pop();
@@ -112,8 +120,23 @@ try {
             }
             return currentStateFrame;
         };
+        Factory.prototype.getValidChildStates = function() {
+            const p = this.statePath + '.';
+            return this.validStates.filter(s => s.indexOf(p) >= 0);
+        };
+        Factory.prototype.isFirstStateInPath = function(states = [], parPath = this.getValidChildStates()) {
+            const firstState = states[0];
+            console.error('child', parPath);
+            console.info('STATE: ', firstState);
+            for(let i = 0; i < parPath.length; i++) {
+                if(-1 < parPath[i].indexOf(firstState)){
+                    console.info('a match! ', parPath[i]);
+                    return true;
+                }
+            }
+            return false;
+        };
         Factory.prototype.isValidPath = function(newPath) {
-            console.log(newPath, ' from is valid');
             const pathExists = this.validStates.filter(path => path === newPath).length === 1;
             if(pathExists) return pathExists;
             throw new Error('new state path not on validState list: ' + newPath);
@@ -138,7 +161,7 @@ try {
                     // Note: difference here between 'jump' and 'transition' (entry/exit actions triggered) to states
                     // TODO: refactor this to use 'updateStatePath', and indicate a parent
                     console.warn('directly jumping ', pathToAncestorWithAction);
-                    this.updateStatePath(pathToAncestorWithAction, {direct: true});
+                    this.updateStatePath(pathToAncestorWithAction, {directToAncestor: true});
 
                     const validActions = this.state.on;
                     const actionBeingTaken = validActions[event];
@@ -156,26 +179,31 @@ try {
          * 
          */
         Factory.prototype.transitionToNewSiblingState = function(targetStateLabel) {
-           
-            if(!targetStateLabel) return;
-            
+           if(!targetStateLabel) return;
             const parentState = this.getParentOfCurrentGlobalState();
-            const siblingStates = parentState.states;
-            
-            // safe to make transition
-            if(siblingStates && siblingStates[targetStateLabel]) {
-                this.updateStatePath(targetStateLabel);
-            }
+            const siblingStates = parentState && parentState.states; 
+            // check if safe to make transition
+            if(!(siblingStates && siblingStates[targetStateLabel])) return;
 
-            //TODO: Need to further transition state deep down, if nested states
-            if(this.state.initial) {
-               
-                this.updateStatePath(this.state.initial, {nested: true});
-                //TODO need recursive call here to keep diving down into nested states 
-                while(this.state.initial) {
-                    console.warn('setting nested state in WHILE loop: ', this.state.initial, this.statePath);
-                    this.updateStatePath(this.state.initial, {nested: true});
+            this.updateStatePath(targetStateLabel);
+
+            while(this.state.initial) {
+                // default to initial state for this state being entered
+                let nextState = this.state.initial;
+
+                console.log(this.isFirstStateInPath(this.pseudoStates));
+
+                // if next pseudo state valid, take it
+                if(this.pseudoStates && this.pseudoStates[0] && this.state.states[this.pseudoStates[0]]) {
+                    console.log('valid pseudo state exists...');
+                    nextState = this.pseudoStates.shift();
+                } else {
+                     // if pseudo[0] is still valid child somewhere in valid children, keep
+                    // else, shift off pseudo[0]
+                    if(this.pseudoStates && !this.isFirstStateInPath(this.pseudoStates)) this.pseudoStates.shift();
+
                 }
+                this.updateStatePath(nextState, {nested: true});
             }
         };
         /**
@@ -185,17 +213,17 @@ try {
          * @returns 
          */
         Factory.prototype.updateStatePath = function(target, 
-                    config = {nested: false, direct: false}
+                    config = {nested: false, directToAncestor: false}
                 ) {
-                    const {nested, direct} = config;
+                    const {nested, directToAncestor} = config;
                     const listOfStates = this.statePath.split('.');
-                    if(direct) {
-                        console.log('direct, ', this.statePath, target);
-                        this.statePath = target;
-                        return this.hasJustJumpedToParentState = true;
+                    if(directToAncestor) {
+                        //TODO: Check and store pseudo child states
+                        this.pseudoStates = this.getChildPathsRelativeToAncestor(target);
+                        console.warn('pseduoL ', this.pseudoStates);
+                        return this.statePath = target;
                     }
-                    if(!this.hasJustJumpedToParentState) {
-                        // don't want to trigger onEntry actions when jumping direct from child state 
+                    if(!nested) {
                         this.doStateTransitionActions(this.state, 'onExit');
                     }
                     if(1 == listOfStates.length && !nested) {
@@ -210,6 +238,26 @@ try {
                 };
         return Factory;
     }());
+
+    const typeStates = {
+        initial: 'multitude',
+        states: {
+            multitude: {
+                on: {
+                    SWITCH_MAGNITUDE: {
+                        target: 'magnitude'
+                    }
+                }
+            },
+            magnitude: {
+                on: {
+                    SWITCH_MULTITUDE: {
+                        target: 'multitude'
+                    } 
+                }
+            }
+        }
+    };
 
     const loadedStates = {
         initial: 'twoTerm',
@@ -228,25 +276,11 @@ try {
                         target: 'error'
                     }
                 },
-                states: {
-                    multitude: {
-                        on: {
-                            SWITCH_MAGNITUDE: {
-                                target: 'magnitude'
-                            }
-                        }
-                    },
-                    magnitude: {
-                        on: {
-                            SWITCH_MULTITUDE: {
-                                target: 'multitude'
-                            } 
-                        }
-                    }
-                }
+                ...typeStates
             },
             multiTerm: {
                 label: 'multiTerm',
+                initial: 'multitude',
                 on: {
                     SELECT_TWOTERM: {
                         target: 'twoTerm'
@@ -254,7 +288,8 @@ try {
                     ERROR: {
                         target: 'error'
                     }
-                }
+                },
+                ...typeStates
             },
             error: {
                 label: 'loaded.error',
@@ -337,8 +372,10 @@ try {
             };
         window.addEventListener("load", function () {
             widget.sendEvent("LOAD");
+            widget.sendEvent("SELECT_MULTITERM");
+            widget.sendEvent("SWITCH_MAGNITUDE");
+            widget.sendEvent("SELECT_TWOTERM");
             //widget.sendEvent("SELECT_MULTITERM");
-            //widget.sendEvent("SELECT_TWOTERM");
             //widget.sendEvent("SPOOF");
            //widget.sendEvent("ERROR");
 
