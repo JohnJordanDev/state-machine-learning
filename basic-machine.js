@@ -6,10 +6,6 @@
  */
 try {
     const stateMachineFactory = (function () {
-        const _disallowedAction = function(msg) {
-            console.warn('This action is not allowed: ', msg);
-            return null;
-        };
         const Factory = function(stateMachineDescription) {
             let _pseudoStates = [];
             let _state = stateMachineDescription['states'][stateMachineDescription.initial];
@@ -18,11 +14,11 @@ try {
                 __proto__: Factory.prototype,
                 get pseudoStates() {return this._pseudoStates},
                 set pseudoStates(newState) {
-                    if(!Array.isArray(newState)) return _disallowedAction('Pseudostate must be array');
+                    if(!Array.isArray(newState)) return this.disallowedAction('Pseudostate must be array');
                     this._pseudoStates = newState;
                 },
                 get state() {return _state;},
-                set state(newState) {return _disallowedAction(`Trying to set manually, to '${newState}'`)},
+                set state(newState) {return this.disallowedAction(`Trying to set manually, to '${newState}'`)},
                 get statePath() {return _statePath;},
                 set statePath(newPath) {
                     if(!this.isValidPath(newPath)) return;
@@ -32,17 +28,23 @@ try {
                 },
                 ...stateMachineDescription,
                 //TODO: this could be replaced with an actual check on the state machine, to see if path corresponds to a state
-                validStates: 
-                    Object.keys(stateMachineDescription['states'])
-                    .concat(['loaded.twoTerm', 
+                validStates: Object.keys(stateMachineDescription['states'])
+                    .concat([
+                    'loaded.twoTerm', 
                     'loaded.multiTerm', 
                     'loaded.error', 
                     'loaded.twoTerm.multitude', 
                     'loaded.twoTerm.magnitude',
                     'loaded.multiTerm.multitude',
-                    'loaded.multiTerm.magnitude'])
+                    'loaded.multiTerm.magnitude',
+                    'woof.-majorTerm-minorTerm'
+                ])
             };
             return m;
+        };
+        Factory.prototype.disallowedAction = function(msg) {
+            console.warn('This action is not allowed: ', msg);
+            return null;
         };
         /**
          * 
@@ -50,7 +52,7 @@ try {
          * @param {string} actionList name of property on state, which lists functions 
          */
         Factory.prototype.doStateTransitionActions = function(state, actionListName = 'onExit') {
-            //_disallowedAction('action list NOT on state.');
+            //this.disallowedAction('action list NOT on state.');
             if(!(state[actionListName] && Array.isArray(state[actionListName]))) return;
             let list = state[actionListName];
             for(let i = 0; i < list.length; i++) {
@@ -97,6 +99,21 @@ try {
         Factory.prototype.getStateFrameFromPath = function(path = this.statePath) {
             // assume at root state, return state machine itself
             if(!path) return this;
+
+            //TODO: Check for parallel states
+            if(-1 < this.getDeepestStateLabel().indexOf('-')) {
+                let newStateFrame = {};
+                let parallelStatesFrames = this.state && this.state.states;
+                let parallelStateList = Object.keys(parallelStatesFrames);
+                let parallelStateLabels = this.getDeepestStateLabel().slice(1).split('-');
+                let currentParallelState;
+                for(let i = 0; i < parallelStateList.length; i++) {
+                    currentParallelState = parallelStateLabels[i]; 
+                    newStateFrame[currentParallelState] = parallelStatesFrames[currentParallelState];
+                }
+                //return console.log('setting parallel states from getStateFrameFromPath ', this.state, parallelStateLabels);
+                return newStateFrame;
+            }
             
             const statePathList = path.split('.');
 
@@ -126,11 +143,8 @@ try {
         };
         Factory.prototype.isFirstStateInPath = function(states = [], parPath = this.getValidChildStates()) {
             const firstState = states[0];
-            console.error('child', parPath);
-            console.info('STATE: ', firstState);
             for(let i = 0; i < parPath.length; i++) {
                 if(-1 < parPath[i].indexOf(firstState)){
-                    console.info('a match! ', parPath[i]);
                     return true;
                 }
             }
@@ -139,7 +153,8 @@ try {
         Factory.prototype.isValidPath = function(newPath) {
             const pathExists = this.validStates.filter(path => path === newPath).length === 1;
             if(pathExists) return pathExists;
-            throw new Error('new state path not on validState list: ' + newPath);
+            console.error('newpath is NOT on list: ', newPath);
+            throw new Error('new state path not on validState list: ');
         };
         Factory.prototype.sendEvent = function(event) {
             console.warn('Event: ', event);
@@ -187,6 +202,15 @@ try {
 
             this.updateStatePath(targetStateLabel);
 
+            if(this.state && 'parallel' === this.state.type) {
+                if(!this.state.states) return this.disallowedAction(`Parallel state has no 'states' property`);
+                let parallelStates = Object.keys(this.state.states).join('-');
+                parallelStates = '-' + parallelStates;
+
+                console.error('parallel state being entered: ', this.state.label, parallelStates);
+                return this.updateStatePath(parallelStates, {parallel: true});
+            }
+
             while(this.state.initial) {
                 // default to initial state for this state being entered
                 let nextState = this.state.initial;
@@ -213,10 +237,14 @@ try {
          * @returns 
          */
         Factory.prototype.updateStatePath = function(target, 
-                    config = {nested: false, directToAncestor: false}
+                    config = {nested: false, directToAncestor: false, parallel: false}
                 ) {
-                    const {nested, directToAncestor} = config;
+                    const {nested, directToAncestor, parallel} = config;
                     const listOfStates = this.statePath.split('.');
+
+                    if(parallel) {
+                        return  this.statePath += '.' + target;
+                    }
                     if(directToAncestor) {
                         //TODO: Check and store pseudo child states
                         this.pseudoStates = this.getChildPathsRelativeToAncestor(target);
@@ -229,6 +257,7 @@ try {
                     if(1 == listOfStates.length && !nested) {
                         this.statePath = target;
                     } else if(nested) {
+
                         this.statePath += '.' + target;
                     } else {
                         listOfStates[listOfStates.length -1] = target;
@@ -313,6 +342,9 @@ try {
                     },
                     ERROR: {
                         target: 'error'
+                    },
+                    WOOF: {
+                        target: 'woof'
                     }
                 }
             },
@@ -347,6 +379,7 @@ try {
             },
             woof: {
                 label: 'woof',
+                type: 'parallel',
                 onEntry : [console.log],
                 onExit : [console.log],
                 on: {
@@ -354,6 +387,14 @@ try {
                         target: 'loaded',
                         entry : [console.log],
                         exit : [console.log]
+                    }
+                },
+                states: {
+                    majorTerm: {
+                        type: 'final'
+                    },
+                    minorTerm: {
+                        type: 'final'
                     }
                 }
             }
@@ -371,12 +412,13 @@ try {
                 will trigger re-render on */
             };
         window.addEventListener("load", function () {
-            widget.sendEvent("LOAD");
-            widget.sendEvent("SELECT_MULTITERM");
-            widget.sendEvent("SWITCH_MAGNITUDE");
-            widget.sendEvent("SELECT_TWOTERM");
+            //widget.sendEvent("LOAD");
+            // widget.sendEvent("SELECT_MULTITERM");
+            // widget.sendEvent("SWITCH_MAGNITUDE");
+            // widget.sendEvent("SELECT_TWOTERM");
             //widget.sendEvent("SELECT_MULTITERM");
             //widget.sendEvent("SPOOF");
+            widget.sendEvent("WOOF");
            //widget.sendEvent("ERROR");
 
             window.widget = widget;
