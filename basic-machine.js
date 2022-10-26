@@ -37,7 +37,8 @@ try {
                     'loaded.twoTerm.magnitude',
                     'loaded.multiTerm.multitude',
                     'loaded.multiTerm.magnitude',
-                    'woof.-majorTerm-minorTerm'
+                    'woof.-majorTerm-minorTerm',
+                    'woof.-majorTerm-minorTerm.multitude'
                 ])
             };
             return m;
@@ -100,20 +101,8 @@ try {
             // assume at root state, return state machine itself
             if(!path) return this;
 
-            //TODO: Check for parallel states
-            if(-1 < this.getDeepestStateLabel().indexOf('-')) {
-                let newStateFrame = {};
-                let parallelStatesFrames = this.state && this.state.states;
-                let parallelStateList = Object.keys(parallelStatesFrames);
-                let parallelStateLabels = this.getDeepestStateLabel().slice(1).split('-');
-                let currentParallelState;
-                for(let i = 0; i < parallelStateList.length; i++) {
-                    currentParallelState = parallelStateLabels[i]; 
-                    newStateFrame[currentParallelState] = parallelStatesFrames[currentParallelState];
-                }
-                //return console.log('setting parallel states from getStateFrameFromPath ', this.state, parallelStateLabels);
-                return newStateFrame;
-            }
+            // first parallel state remains as global state frame
+            if(-1 < this.statePath.indexOf('-')) return this.state;
             
             const statePathList = path.split('.');
 
@@ -206,10 +195,28 @@ try {
                 if(!this.state.states) return this.disallowedAction(`Parallel state has no 'states' property`);
                 let parallelStates = Object.keys(this.state.states).join('-');
                 parallelStates = '-' + parallelStates;
-
                 console.error('parallel state being entered: ', this.state.label, parallelStates);
-                return this.updateStatePath(parallelStates, {parallel: true});
+                this.updateStatePath(parallelStates, {parallel: true});
+
+                console.log(this.statePath.indexOf('-'));
+                const firstParallelState = this.statePath.split('-').slice(1);
+                const childStates = firstParallelState;
+                console.log(childStates);
+
+                while(childStates.length) {
+                    console.log(this.state.states[childStates[0]]);
+                    if(this.state.states[childStates[0]].initial) {
+                        //TODO: Need to be able to handle nested parallel states down to nth depth, rather than just one level
+                        this.updateStatePath(this.state.states[childStates[0]].initial, {nested: true});
+                    }
+
+                    console.log(childStates.shift());
+                }
+
+                return;
             }
+
+            //TODO: If parallel parent, from state path, just append a state (conditionally '^')
 
             while(this.state.initial) {
                 // default to initial state for this state being entered
@@ -391,7 +398,7 @@ try {
                 },
                 states: {
                     majorTerm: {
-                        type: 'final'
+                        ...typeStates
                     },
                     minorTerm: {
                         type: 'final'
@@ -413,7 +420,7 @@ try {
             };
         window.addEventListener("load", function () {
             //widget.sendEvent("LOAD");
-            // widget.sendEvent("SELECT_MULTITERM");
+            //widget.sendEvent("SELECT_MULTITERM");
             // widget.sendEvent("SWITCH_MAGNITUDE");
             // widget.sendEvent("SELECT_TWOTERM");
             //widget.sendEvent("SELECT_MULTITERM");
