@@ -128,7 +128,16 @@ const widgetDescription = {
         }
       }
     }
-  }
+  },
+  validStates: [
+    "loaded.twoTerm",
+    "loaded.multiTerm",
+    "loaded.error",
+    "loaded.twoTerm.multitude",
+    "loaded.twoTerm.magnitude",
+    "loaded.multiTerm.multitude",
+    "loaded.multiTerm.magnitude",
+    "woof.-majorTerm-minorTerm",
+    "woof.-majorTerm-minorTerm.multitude"
+  ]
 };
-
-window.widgetDescription = widgetDescription;

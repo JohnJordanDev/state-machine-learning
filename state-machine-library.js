@@ -5,20 +5,18 @@
  *  and 'transition' (transition state; does trigger entry/exit actions)
  * 2. When adding a new state (atomic or nested), need to add to validState list
  */
-
 try {
-  const stateMachineFactory = (function () {
+  window.stateMachineFactory = (function () {
     const Factory = function (stateMachineDescription) {
-      // eslint-disable-next-line no-unused-vars
-      const _pseudoStates = [];
       let _state = stateMachineDescription["states"][stateMachineDescription.initial];
       let _statePath = stateMachineDescription.initial;
+      let _pseudoStates = [];
       const m = {
         __proto__: Factory.prototype,
-        get pseudoStates() { return this._pseudoStates; },
+        get pseudoStates() { return _pseudoStates; },
         set pseudoStates(newState) {
           if (!Array.isArray(newState)) return this.disallowedAction("Pseudostate must be array");
-          this._pseudoStates = newState;
+          _pseudoStates = newState;
           return true;
         },
         get state() {
@@ -34,18 +32,7 @@ try {
         },
         ...stateMachineDescription,
         // TODO: this could be replaced with an actual check on the state machine, to see if path corresponds to a state
-        validStates: Object.keys(stateMachineDescription["states"])
-          .concat([
-            "loaded.twoTerm",
-            "loaded.multiTerm",
-            "loaded.error",
-            "loaded.twoTerm.multitude",
-            "loaded.twoTerm.magnitude",
-            "loaded.multiTerm.multitude",
-            "loaded.multiTerm.magnitude",
-            "woof.-majorTerm-minorTerm",
-            "woof.-majorTerm-minorTerm.multitude"
-          ])
+        validStates: Object.keys(stateMachineDescription["states"]).concat(stateMachineDescription["validStates"])
       };
       return m;
     };
@@ -101,6 +88,10 @@ try {
       listOfNestedStates.pop(); // get parent state path
       return this.getStateFrameFromPath(listOfNestedStates.join("."));
     };
+    /**
+     * @param {string} path - state path to retrieve state frame from
+     * @returns {Object|Object[]} stateFrame
+     */
     Factory.prototype.getStateFrameFromPath = function (path = this.statePath) {
       // assume at root state, return state machine itself
       if (!path) return this;
@@ -162,7 +153,7 @@ try {
       if (targetStateLabel) {
         this.transitionToNewSiblingState(targetStateLabel);
       }
-
+      // reverse up ancestor list to find a state that can respond to Event (if exists)
       if (!actionBeingTaken) {
         const pathToAncestorWithAction = this.getPathToAncestorStateWithAction(event);
         if (pathToAncestorWithAction) {
@@ -274,34 +265,6 @@ try {
     };
     return Factory;
   }());
-
-  const widget = stateMachineFactory(window.widgetDescription);
-
-  (function addHandlers(widget) {
-    try {
-      const processEventToStateMachine = function () {
-        // send event to state machine.
-        /* emit custom event from DOM element, if change in state of state machine.
-                https://www.javascripttutorial.net/javascript-dom/javascript-custom-events/, which
-                will trigger re-render on */
-      };
-      window.addEventListener("load", () => {
-        // widget.sendEvent("LOAD");
-        // widget.sendEvent("SELECT_MULTITERM");
-        // widget.sendEvent("SWITCH_MAGNITUDE");
-        // widget.sendEvent("SELECT_TWOTERM");
-        // widget.sendEvent("SELECT_MULTITERM");
-        // widget.sendEvent("SPOOF");
-        widget.sendEvent("WOOF");
-        // widget.sendEvent("ERROR");
-
-        window.widget = widget;
-      });
-    } catch (e) {
-      console.error("Catching error: ", e);
-      widget.sendEvent("ERROR");
-    }
-  }(widget));
 } catch (e) {
   console.error(e);
 }
