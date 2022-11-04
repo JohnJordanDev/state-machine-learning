@@ -23,7 +23,6 @@ const loadedStates = {
   states: {
     twoTerm: {
       label: "twoTerm",
-      initial: "multitude",
       on: {
         SELECT_TWOTERM: {
           target: null
@@ -39,7 +38,6 @@ const loadedStates = {
     },
     multiTerm: {
       label: "multiTerm",
-      initial: "multitude",
       on: {
         SELECT_TWOTERM: {
           target: "twoTerm"

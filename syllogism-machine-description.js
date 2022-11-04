@@ -1,3 +1,5 @@
+/* eslint-disable padded-blocks */
+/* eslint-disable no-trailing-spaces */
 const syllogismDescription = {
   initial: "loading",
   label: "rootState",
@@ -31,7 +33,12 @@ const syllogismDescription = {
           }
         },
         dirty: {
-          type: "final"
+          label: "dirty",
+          on: {
+            CLEAN: {
+              target: "clean"
+            }
+          }
         }
       }
     },
@@ -45,32 +52,9 @@ const syllogismDescription = {
     }
   },
   validStates: [
-    "loaded.clean"
+    "loaded.clean",
+    "loaded.dirty"
   ]
 };
 
-try {
-  const widgetRef = window.stateMachineFactory(syllogismDescription);
-
-  (function addHandlers(widget) {
-    try {
-      const processEventToStateMachine = function () {
-        // send event to state machine.
-        /* emit custom event from DOM element, if change in state of state machine.
-                https://www.javascripttutorial.net/javascript-dom/javascript-custom-events/, which
-                will trigger re-render on */
-      };
-      window.widget = widget;
-      widget.sendEvent("ERROR");
-      window.addEventListener("load", () => {
-        widget.sendEvent("LOAD");
-      });
-    } catch (e) {
-      console.error("Catching error: ", e);
-      widget.sendEvent("ERROR");
-    }
-  }(widgetRef));
-} catch (error) {
-  // eslint-disable-next-line no-console
-  console.error("An error occured: ", error);
-}
+window.syllogismDescription = syllogismDescription;
