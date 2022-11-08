@@ -1,16 +1,16 @@
 try {
   const widgetRef = window.stateMachineFactory(window.syllogismDescription);
 
-  (function addHandlers(widget) {
+  const addHandlers = function addHandlers(widget) {
     try {
       const machineDomTarget = document.getElementById("machine-target");
 
-      const renderMachineToDOM = function (machine) {
-        machineDomTarget.innerHTML = (window.machineDOMTemplate(machine));
+      const renderMachineToDOM = function (machine, DOMTarget) {
+        // eslint-disable-next-line no-param-reassign
+        DOMTarget.innerHTML = (window.machineDOMTemplate(machine));
       };
-        // eslint-disable-next-line no-trailing-spaces
-        
-      renderMachineToDOM(widget);
+
+      renderMachineToDOM(widget, machineDomTarget);
 
       const processEventToStateMachine = function (event, machine) {
         const initialState = widget.statePath;
@@ -18,7 +18,7 @@ try {
         machine.sendEvent(event);
 
         if (initialState !== machine.statePath) {
-          renderMachineToDOM(machine);
+          renderMachineToDOM(machine, machineDomTarget);
         }
       };
 
@@ -35,7 +35,7 @@ try {
         if (eventType) {
           if (eventType === "RELOAD") {
             window.widget = window.stateMachineFactory(window.syllogismDescription);
-            renderMachineToDOM(window.widget);
+            renderMachineToDOM(window.widget, machineDomTarget);
             return;
           }
           processEventToStateMachine(eventType, widget);
@@ -45,7 +45,9 @@ try {
       console.error("Catching error: ", e);
       widget.sendEvent("ERROR");
     }
-  }(widgetRef));
+  };
+
+  addHandlers(widgetRef);
 } catch (error) {
   // eslint-disable-next-line no-console
   console.error("An error occured: ", error);
